@@ -1,0 +1,28 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+!theme mono
+LAYOUT_TOP_DOWN()
+HIDE_STEREOTYPE()
+' LAYOUT_AS_SKETCH()
+' LAYOUT_WITH_LEGEND()
+
+title C4 Container diagram for Trainspotter
+
+System_Ext(network_rail, "Network Rail Data Feed") {
+    Container(stomp, "Messaging Service", "ActiveMQ Artemis", "Publishes Train Describer (TD) events")
+}
+
+System_Boundary(c1, "Trainspotter") {
+    Container(application, "Application", "Golang", "Listens for trains and records video")
+    Container(file_system, "File System", "", "")
+}
+
+Container(mqtt, "MQTT Service", "topic", "")
+Container(api, "UK Rail API", "REST API", "Provides information about train schedules")
+
+Rel(application, stomp, "Listens for new C-Class message", "STOMP")
+Rel(application, api, "Retrievs information about train schedules", "https")
+Rel(application, mqtt, "Published data on trains that pass", "mqtt")
+Rel(application, file_system, "Writes mpeg videos", "file i/o")
+Rel(application, file_system, "Writes json data", "file i/o")
+@enduml

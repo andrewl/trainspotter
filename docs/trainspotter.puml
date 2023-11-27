@@ -1,0 +1,17 @@
+@startjson
+{
+   "Category" : "Express Passenger",
+   "DateTime" : "20231011_1801",
+   "Origin" : "LONDON WATERLOO",
+   "Destination" : "WOKING",
+   "Operator" : "South Western Railway",
+   "Headcode" : "1S59",
+   "OperatingCharacteristics" : "",
+   "PowerType" : "Electric Multiple Unit",
+   "Speed" : "100",
+   "TimingLoad" : "",
+   "HasPassed" : true,
+   "FrameCount" : 271
+}
+@endjson
+
