@@ -1,21 +1,32 @@
 ---
 # url of the Network Rail STOMP server
-#
 #stomp_url: "publicdatafeeds.networkrail.co.uk:61618"
 
 # Credentials to access the Network Rail STOMP server
-#stomp_login: ""
-#stomp_password: ""
+stomp_login: ""
+stomp_password: ""
 
 # Location of logfile
 # Leave blank to log to stderr
+#
 #log_filename: "trainspotter.log"
 
 # Location of MQTT server to post to
 #mqtt_url: ""
+#mqtt_topic: ""
 
 # Video device to record from
 #video_capture_device: ""
 
 # Directory to save videos and json files to
-#save_dir: "/tmp/"
+#save_dir: "/tmp/" 
+
+# Tiploc code to filter train schedules by
+#tiploc_code: ""
+
+# The area id that we're looking in
+area_id: ""
+
+# The berths that we want to watch
+berths:
+  - 
