@@ -81,10 +81,13 @@ func main() {
 		panic("Area ID not set")
 	}
 
-	//split the berths into an array
-	berths = viper.GetStringSlice("berths")
+	if getConfigValue("stomp_login") == "" {
+		panic("STOMP login not set")
+	}
 
-	fmt.Printf("berths: %v\n", berths)
+	if getConfigValue("stomp_password") == "" {
+		panic("STOMP password not set")
+	}
 
 	var logOutput *os.File
 	if getConfigValue("log_filename") != "" {
@@ -108,6 +111,10 @@ func main() {
 	})
 
 	logger = slog.New(logHandler)
+
+	//split the berths into an array
+	berths = viper.GetStringSlice("berths")
+	logger.Info("Berths set to", "berths", berths)
 
 	if getConfigValue("mqtt_url") != "" {
 
@@ -144,7 +151,7 @@ func main() {
 	for {
 		err := listenForTrains()
 		if err != nil {
-			fmt.Printf("%+v\n", err)
+			logger.Error(err.Error())
 		}
 	}
 
@@ -350,7 +357,7 @@ func createVideoFromImages(imageFiles []string, outputFilename string) error {
 		return err
 	}
 
-	fmt.Println("MJPEG video generated successfully!")
+	logger.Info("MJPEG video generated successfully!")
 
 	return nil
 }
@@ -360,7 +367,7 @@ func createVideoFromImages(imageFiles []string, outputFilename string) error {
 // It also starts a goroutine to get the train info from the UK Rail API
 func trainHasArrived(headcode string) {
 	//create a new train recording object and add it to the list of current train recordings
-	fmt.Println("Starting recording for train ", headcode)
+	logger.Info("Starting recording for train ", "headcode", headcode)
 	var train PassingTrain
 	train.Headcode = headcode
 	train.DateTime = time.Now().Format("20060102_1504")
@@ -375,7 +382,7 @@ func trainHasArrived(headcode string) {
 // It also sends the train info to MQTT if configured
 func trainHasPassed(headcode string) {
 
-	fmt.Println("Stopping recording for train ", headcode)
+	logger.Info("Stopping recording for train", "headcode", headcode)
 	//find the train recording object in the list of current train recordings and remove it
 	for i, train := range currentPassingTrains {
 		if train.Headcode == headcode {
@@ -385,21 +392,21 @@ func trainHasPassed(headcode string) {
 
 			train_json, err := json.Marshal(train)
 			if err != nil {
-				fmt.Println("Error marshalling JSON:", err)
+				logger.Error("Error marshalling JSON:", "error", err)
 				return
 			}
 
 			if mqttClient != nil {
-				fmt.Println("Sending train info to MQTT...")
+				logger.Info("Sending train info to MQTT...")
 				token := mqttClient.Publish(getConfigValue("mqtt_topic"), 0, false, train_json)
 				token.Wait()
 				if token.Error() != nil {
-					fmt.Println("Error publishing MQTT message:", token.Error())
+					logger.Error("Error publishing MQTT message:", "error", token.Error())
 					return
 				}
 			}
 
-			fmt.Println("Done capturing video frames. Video conversion starting...")
+			logger.Info("Done capturing video frames. Video conversion starting...")
 
 			//create a list of the image files
 			imageFiles := []string{}
@@ -410,23 +417,23 @@ func trainHasPassed(headcode string) {
 			//create the video from the images
 			err = createVideoFromImages(imageFiles, fmt.Sprintf("/tmp/%s_%s.mp4", train.Headcode, train.DateTime))
 			if err != nil {
-				fmt.Println("Error creating video from images:", err)
+				logger.Error("Error creating video from images:", "error", err)
 				return
 			} else {
 				//delete the image files
 				for _, imageFile := range imageFiles {
 					err := os.Remove(imageFile)
 					if err != nil {
-						fmt.Println("Error deleting image file:", err)
+						logger.Error("Error deleting image file:", "error", err)
 					}
 				}
 			}
 
 			//save the train info to a file
-			fmt.Println("Saving train info to file...")
+			logger.Info("Saving train info to file...")
 			file, err := os.Create(fmt.Sprintf("/tmp/%s_%s.json", train.Headcode, train.DateTime))
 			if err != nil {
-				fmt.Println("Error creating file:", err)
+				logger.Debug("Error creating file:", "error", err)
 				return
 			}
 			defer file.Close()
@@ -443,7 +450,7 @@ func trainHasPassed(headcode string) {
 // It uses the UK Rail API to get the train info for the headcode and tiploc code if configured
 func getPassingTrainInfo(passingTrain *PassingTrain) error {
 
-	fmt.Println("Getting train info for ", passingTrain.Headcode)
+	logger.Info("Getting train info for ", "headcode", passingTrain.Headcode)
 
 	passingTrain.Origin = "Unknown"
 	passingTrain.Destination = "Unknown"
@@ -463,14 +470,14 @@ func getPassingTrainInfo(passingTrain *PassingTrain) error {
 	// Send an HTTP GET request
 	response, err := http.Get(apiUrl)
 	if err != nil {
-		fmt.Println("Error:", err)
+		logger.Error("Error retrieving schedule information:", "error", err)
 		return err
 	}
 	defer response.Body.Close()
 
 	// Check if the response status code is OK (200)
 	if response.StatusCode != http.StatusOK {
-		fmt.Println("HTTP request failed with status code:", response.StatusCode)
+		logger.Info("HTTP request failed with status code:", "status code", response.StatusCode)
 		return err
 	} else {
 
@@ -480,12 +487,11 @@ func getPassingTrainInfo(passingTrain *PassingTrain) error {
 		// Decode the JSON response into the ASTRUCT variable
 		decoder := json.NewDecoder(response.Body)
 		if err := decoder.Decode(&schedules); err != nil {
-			fmt.Println("Error decoding JSON:", err)
+			logger.Error("Error decoding JSON:", "error", err)
 			return err
 		}
 
 		now := time.Now().Unix()
-
 		var best_match UKTrainSchedule
 
 		for _, schedule := range schedules {
@@ -497,7 +503,7 @@ func getPassingTrainInfo(passingTrain *PassingTrain) error {
 		}
 
 		if best_match.Origin != "" {
-			fmt.Println("Train found: From "+best_match.Origin+" To "+best_match.Destination+" Operated by "+best_match.AtocCodeDescription+" Category ", best_match.CIFTrainCategoryDescription, ", Power Type ", best_match.CIFPowerTypeDescription, ", Timing Load ", best_match.CIFTimingLoadDescription, ", Operating Characteristics ", best_match.CIFOperatingCharacteristicsDescription, ", Speed ", best_match.CIFSpeed, "mph")
+			logger.Info("Train found: ", "train", best_match)
 			passingTrain.Origin = best_match.Origin
 			passingTrain.Destination = best_match.Destination
 			passingTrain.Operator = best_match.AtocCodeDescription
@@ -507,7 +513,7 @@ func getPassingTrainInfo(passingTrain *PassingTrain) error {
 			passingTrain.OperatingCharacteristics = best_match.CIFOperatingCharacteristicsDescription
 			passingTrain.Speed = best_match.CIFSpeed
 		} else {
-			fmt.Println("No suitable train found")
+			logger.Info("No train found")
 		}
 	}
 
@@ -518,7 +524,7 @@ func getPassingTrainInfo(passingTrain *PassingTrain) error {
 // This function will listen for trains and starts recording image frames when a train arrives
 // and stop recording when it passes
 func listenForTrains() error {
-	fmt.Println("Starting stomp connection...")
+	logger.Info("Starting stomp connection...")
 
 	conn, err := stomp.Dial("tcp", getConfigValue("stomp_url"),
 		stomp.ConnOpt.HeartBeatError(360*time.Second),
@@ -537,13 +543,13 @@ func listenForTrains() error {
 	for {
 		stompMsg := <-sub.C
 		if stompMsg.Err != nil {
-			fmt.Printf("There was an error: %+v", stompMsg.Err)
+			logger.Error("There was an error: %+v", "error", stompMsg.Err)
 			return stompMsg.Err
 		}
 
 		var messages []Message
 		if err := json.Unmarshal(stompMsg.Body, &messages); err != nil {
-			fmt.Println("Error decoding JSON:", err)
+			logger.Error("Error decoding JSON:", "error", err)
 			return err
 		}
 
@@ -554,25 +560,14 @@ func listenForTrains() error {
 					//check if the message is for one of the berths we are interested in
 					for _, berth := range berths {
 						if c_msg.To == berth {
-							fmt.Println("START recording ", c_msg.Descr)
+							logger.Info("START recording ", "headcode", c_msg.Descr)
 							go trainHasArrived(c_msg.Descr)
 						} else if c_msg.From == berth {
-							fmt.Println("STOP recording ", c_msg.Descr)
+							logger.Info("STOP recording ", "headcode", c_msg.Descr)
 							go trainHasPassed(c_msg.Descr)
 						}
 					}
 				}
-
-				/*
-				if c_msg.AreaID == getConfigValue("area_code") && (c_msg.To == "2207" || c_msg.To == "2196") {
-				fmt.Println("START recording ", c_msg.Descr)
-				go trainHasArrived(c_msg.Descr)
-				}
-				if c_msg.AreaID == "B1" && (c_msg.From == "2207" || c_msg.From == "2196") {
-				fmt.Println("STOP recording ", c_msg.Descr)
-				go trainHasPassed(c_msg.Descr)
-				}
-				*/
 			}
 		}
 
