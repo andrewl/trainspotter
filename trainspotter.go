@@ -129,24 +129,26 @@ func main() {
 		defer mqttClient.Disconnect(250)
 	}
 
-	err = errors.New("")
-
-	// open device
-	videoCaptureDevice, err = device.Open(getConfigValue("video_capture_device"))
-	if err != nil {
-		log.Fatalf("failed to open device: %s", err)
-	}
-	defer videoCaptureDevice.Close()
-
-	// start stream
-	ctx, stop := context.WithCancel(context.TODO())
-	if err := videoCaptureDevice.Start(ctx); err != nil {
-		log.Fatalf("failed to start stream: %s", err)
-	}
 
 	currentPassingTrains = []PassingTrain{}
 
-	go recordTrains()
+	err = errors.New("")
+	// open device
+	if (getConfigValue("video_capture_device") != "") && (getConfigValue("video_capture_device") != "none") {
+		videoCaptureDevice, err = device.Open(getConfigValue("video_capture_device"))
+		if err != nil {
+			slog.Warn("failed to open device", "error", err)
+		} else {
+			defer videoCaptureDevice.Close()
+
+			// start stream
+			ctx, _ := context.WithCancel(context.TODO())
+			if err := videoCaptureDevice.Start(ctx); err != nil {
+				slog.Warn("failed to open camera", "error", err)
+			}
+			go recordTrains()
+		}
+	}
 
 	for {
 		err := listenForTrains()
@@ -155,7 +157,6 @@ func main() {
 		}
 	}
 
-	stop()
 }
 
 // SFMsg is a struct to hold the data from a SF message
@@ -531,19 +532,24 @@ func listenForTrains() error {
 		stomp.ConnOpt.Login(getConfigValue("stomp_login"), getConfigValue("stomp_password")))
 
 	if err != nil {
+		slog.Warn("failed to connect to STOMP server", "error", err)
 		return err
 	}
 	defer conn.Disconnect()
 
-	sub, err := conn.Subscribe("TD_ALL_SIG_AREA", stomp.AckAuto)
+	sub, err := conn.Subscribe("/topic/TD_ALL_SIG_AREA", stomp.AckAuto)
 	if err != nil {
+		slog.Warn("failed to subscribe to topic", "error", err)
 		return err
 	}
 
+	slog.Info("Connected to STOMP server", "url", getConfigValue("stomp_url"))
+
 	for {
+
 		stompMsg := <-sub.C
 		if stompMsg.Err != nil {
-			logger.Error("There was an error: %+v", "error", stompMsg.Err)
+			slog.Warn("failed to receive message", "error", stompMsg.Err)
 			return stompMsg.Err
 		}
 
@@ -556,14 +562,14 @@ func listenForTrains() error {
 		for _, message := range messages {
 			if message.CAMsg != nil || message.CBMsg != nil || message.CCMsg != nil {
 				c_msg := GetCMsg(&message)
-				if c_msg.AreaID == getConfigValue("area_code") {
+				if c_msg.AreaID == getConfigValue("area_id") {
 					//check if the message is for one of the berths we are interested in
 					for _, berth := range berths {
 						if c_msg.To == berth {
-							logger.Info("START recording ", "headcode", c_msg.Descr)
+							logger.Debug("START recording ", "headcode", c_msg.Descr)
 							go trainHasArrived(c_msg.Descr)
 						} else if c_msg.From == berth {
-							logger.Info("STOP recording ", "headcode", c_msg.Descr)
+							logger.Debug("STOP recording ", "headcode", c_msg.Descr)
 							go trainHasPassed(c_msg.Descr)
 						}
 					}
